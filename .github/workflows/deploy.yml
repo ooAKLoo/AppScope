@@ -1,0 +1,142 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/appscope-backend
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/appscope-frontend
+
+jobs:
+  build-backend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [build-backend, build-frontend]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            cd /opt/appscope || mkdir -p /opt/appscope && cd /opt/appscope
+
+            # Login to GitHub Container Registry
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull latest images
+            docker pull ${{ env.BACKEND_IMAGE }}:latest
+            docker pull ${{ env.FRONTEND_IMAGE }}:latest
+
+            # Create docker-compose.prod.yml if not exists
+            cat > docker-compose.yml << 'COMPOSE'
+            services:
+              backend:
+                image: ${{ env.BACKEND_IMAGE }}:latest
+                container_name: appscope-backend
+                ports:
+                  - "3001:3001"
+                environment:
+                  - DATABASE_URL=sqlite:/app/data/appscope.db?mode=rwc
+                  - WRITE_KEY=${{ secrets.WRITE_KEY }}
+                  - READ_KEY=${{ secrets.READ_KEY }}
+                  - PORT=3001
+                  - RUST_LOG=info
+                volumes:
+                  - appscope-data:/app/data
+                restart: unless-stopped
+
+              frontend:
+                image: ${{ env.FRONTEND_IMAGE }}:latest
+                container_name: appscope-frontend
+                ports:
+                  - "3000:3000"
+                depends_on:
+                  - backend
+                restart: unless-stopped
+
+            volumes:
+              appscope-data:
+            COMPOSE
+
+            # Restart services
+            docker compose down
+            docker compose up -d
+
+            # Cleanup old images
+            docker image prune -f
