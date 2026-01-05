@@ -1,4 +1,4 @@
-FROM rust:1.83-bookworm as builder
+FROM rust:1.83-bookworm AS builder
 
 WORKDIR /app
 
@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy source files
-COPY Cargo.toml Cargo.lock ./
+# Copy source files (let cargo regenerate lock file)
+COPY Cargo.toml ./
 COPY src ./src
 
 # Build release binary
@@ -20,7 +20,6 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
