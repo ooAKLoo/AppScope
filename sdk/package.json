@@ -1,0 +1,23 @@
+{
+  "name": "@appscope/analytics",
+  "version": "0.1.0",
+  "description": "AppScope Analytics SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "analytics",
+    "tracking",
+    "appscope"
+  ],
+  "license": "MIT"
+}

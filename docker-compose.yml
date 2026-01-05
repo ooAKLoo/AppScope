@@ -1,0 +1,30 @@
+services:
+  backend:
+    build: ./backend
+    container_name: appscope-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=sqlite:/app/data/appscope.db?mode=rwc
+      - WRITE_KEY=${WRITE_KEY:-wk_your_write_key}
+      - READ_KEY=${READ_KEY:-rk_your_read_key}
+      - PORT=3001
+      - RUST_LOG=info
+    volumes:
+      - appscope-data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    container_name: appscope-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  appscope-data:
